@@ -4,7 +4,10 @@ import { authApi } from '../services/api';
 interface User {
   id: number;
   email: string;
+  full_name?: string;
   is_2fa_enabled: boolean;
+  auth_provider: string;
+  gmail_connected: boolean;
   created_at: string;
 }
 
@@ -13,6 +16,7 @@ interface AuthContextType {
   isLoading: boolean;
   isAuthenticated: boolean;
   login: (email: string, password: string, totpCode?: string) => Promise<{ requires2FA: boolean }>;
+  loginWithGoogle: (credential: string) => Promise<void>;
   register: (email: string, password: string) => Promise<void>;
   logout: () => void;
   refreshUser: () => Promise<void>;
@@ -59,6 +63,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return { requires2FA: false };
   };
 
+  const loginWithGoogle = async (credential: string) => {
+    const response = await authApi.googleAuth(credential);
+    const { access_token } = response.data;
+    localStorage.setItem('token', access_token);
+    await refreshUser();
+  };
+
   const register = async (email: string, password: string) => {
     await authApi.register(email, password);
   };
@@ -75,6 +86,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         isLoading,
         isAuthenticated: !!user,
         login,
+        loginWithGoogle,
         register,
         logout,
         refreshUser,

@@ -3,6 +3,8 @@ import { AuthProvider, useAuth } from './context/AuthContext';
 import Layout from './components/Layout';
 import Login from './pages/Login';
 import Register from './pages/Register';
+import ForgotPassword from './pages/ForgotPassword';
+import ResetPassword from './pages/ResetPassword';
 import Dashboard from './pages/Dashboard';
 import Emails from './pages/Emails';
 import Resumes from './pages/Resumes';
@@ -64,6 +66,22 @@ function AppRoutes() {
         element={
           <PublicRoute>
             <Register />
+          </PublicRoute>
+        }
+      />
+      <Route
+        path="/forgot-password"
+        element={
+          <PublicRoute>
+            <ForgotPassword />
+          </PublicRoute>
+        }
+      />
+      <Route
+        path="/reset-password"
+        element={
+          <PublicRoute>
+            <ResetPassword />
           </PublicRoute>
         }
       />

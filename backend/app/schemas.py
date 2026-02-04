@@ -41,11 +41,35 @@ class TwoFactorVerify(BaseModel):
 class UserResponse(BaseModel):
     id: int
     email: str
+    full_name: Optional[str] = None
     is_2fa_enabled: bool
+    auth_provider: str = "email"
+    gmail_connected: bool = False
     created_at: datetime
 
     class Config:
         from_attributes = True
+
+
+# Password Reset Schemas
+class PasswordResetRequest(BaseModel):
+    email: EmailStr
+
+
+class PasswordResetConfirm(BaseModel):
+    token: str
+    new_password: str
+
+
+# Google OAuth Schemas
+class GoogleAuthRequest(BaseModel):
+    credential: str  # Google ID token from frontend
+
+
+class GoogleAuthResponse(BaseModel):
+    access_token: str
+    token_type: str
+    is_new_user: bool = False
 
 
 # Skill Schemas

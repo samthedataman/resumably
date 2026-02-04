@@ -13,16 +13,24 @@ class User(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     email = Column(String(255), unique=True, index=True, nullable=False)
-    hashed_password = Column(String(255), nullable=False)
+    hashed_password = Column(String(255), nullable=True)  # Nullable for Google OAuth users
     full_name = Column(String(255))
 
     # 2FA
     totp_secret = Column(String(32), nullable=True)
     is_2fa_enabled = Column(Boolean, default=False)
 
-    # Gmail OAuth
+    # Gmail OAuth (for email access)
     gmail_token = Column(Text, nullable=True)  # JSON string of OAuth tokens
     gmail_connected = Column(Boolean, default=False)
+
+    # Google OAuth Login
+    google_id = Column(String(255), unique=True, nullable=True)  # Google's sub claim
+    auth_provider = Column(String(20), default="email")  # "email" or "google"
+
+    # Password Reset
+    reset_token = Column(String(255), nullable=True)
+    reset_token_expires = Column(DateTime, nullable=True)
 
     # Status
     is_active = Column(Boolean, default=True)

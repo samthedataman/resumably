@@ -1,8 +1,9 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { Mail, Lock, Key } from 'lucide-react';
+import { Mail, Lock, Key, Loader2 } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { authApi } from '../services/api';
 
 export default function Login() {
   const [email, setEmail] = useState('');
@@ -10,8 +11,55 @@ export default function Login() {
   const [totpCode, setTotpCode] = useState('');
   const [needs2FA, setNeeds2FA] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
-  const { login } = useAuth();
+  const [googleClientId, setGoogleClientId] = useState<string | null>(null);
+  const [isGoogleLoading, setIsGoogleLoading] = useState(false);
+  const { login, loginWithGoogle } = useAuth();
   const navigate = useNavigate();
+
+  // Load Google Client ID
+  useEffect(() => {
+    authApi.getGoogleClientId()
+      .then(res => setGoogleClientId(res.data.client_id))
+      .catch(() => setGoogleClientId(null));
+  }, []);
+
+  // Initialize Google Sign-In
+  useEffect(() => {
+    if (!googleClientId) return;
+
+    const script = document.createElement('script');
+    script.src = 'https://accounts.google.com/gsi/client';
+    script.async = true;
+    script.defer = true;
+    script.onload = () => {
+      (window as any).google?.accounts.id.initialize({
+        client_id: googleClientId,
+        callback: handleGoogleCallback,
+      });
+      (window as any).google?.accounts.id.renderButton(
+        document.getElementById('google-signin-btn'),
+        { theme: 'outline', size: 'large', width: '100%', text: 'signin_with' }
+      );
+    };
+    document.body.appendChild(script);
+
+    return () => {
+      document.body.removeChild(script);
+    };
+  }, [googleClientId]);
+
+  const handleGoogleCallback = async (response: any) => {
+    setIsGoogleLoading(true);
+    try {
+      await loginWithGoogle(response.credential);
+      toast.success('Welcome!');
+      navigate('/dashboard');
+    } catch (error: any) {
+      toast.error(error?.response?.data?.detail || 'Google sign-in failed');
+    } finally {
+      setIsGoogleLoading(false);
+    }
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -66,9 +114,14 @@ export default function Login() {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Password
-                </label>
+                <div className="flex items-center justify-between mb-2">
+                  <label className="block text-sm font-medium text-gray-700">
+                    Password
+                  </label>
+                  <Link to="/forgot-password" className="text-sm text-primary-600 hover:text-primary-700">
+                    Forgot password?
+                  </Link>
+                </div>
                 <div className="relative">
                   <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
                   <input
@@ -114,12 +167,40 @@ export default function Login() {
 
           <button
             type="submit"
-            disabled={isLoading}
-            className="w-full btn-primary py-3 text-lg"
+            disabled={isLoading || isGoogleLoading}
+            className="w-full btn-primary py-3 text-lg flex items-center justify-center gap-2"
           >
-            {isLoading ? 'Signing in...' : needs2FA ? 'Verify' : 'Sign In'}
+            {isLoading ? (
+              <>
+                <Loader2 className="w-5 h-5 animate-spin" />
+                Signing in...
+              </>
+            ) : needs2FA ? 'Verify' : 'Sign In'}
           </button>
         </form>
+
+        {/* Google Sign-In */}
+        {googleClientId && !needs2FA && (
+          <>
+            <div className="relative my-6">
+              <div className="absolute inset-0 flex items-center">
+                <div className="w-full border-t border-gray-300" />
+              </div>
+              <div className="relative flex justify-center text-sm">
+                <span className="bg-white px-4 text-gray-500">Or continue with</span>
+              </div>
+            </div>
+
+            <div id="google-signin-btn" className="flex justify-center">
+              {isGoogleLoading && (
+                <div className="flex items-center gap-2 text-gray-600">
+                  <Loader2 className="w-5 h-5 animate-spin" />
+                  Signing in with Google...
+                </div>
+              )}
+            </div>
+          </>
+        )}
 
         <p className="text-center text-gray-600 mt-6">
           Don't have an account?{' '}

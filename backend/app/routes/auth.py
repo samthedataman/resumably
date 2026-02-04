@@ -1,15 +1,21 @@
 """
-Authentication routes - login, register, 2FA setup.
+Authentication routes - login, register, 2FA setup, password reset, Google OAuth.
 """
-from datetime import timedelta
+import secrets
+import logging
+from datetime import datetime, timedelta
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
+from google.oauth2 import id_token
+from google.auth.transport import requests as google_requests
 
 from app.database import get_db
 from app.models import User
 from app.schemas import (
     UserCreate, UserLogin, Token, UserResponse,
-    TwoFactorSetup, TwoFactorVerify
+    TwoFactorSetup, TwoFactorVerify,
+    PasswordResetRequest, PasswordResetConfirm,
+    GoogleAuthRequest, GoogleAuthResponse
 )
 from app.auth import (
     verify_password, get_password_hash, create_access_token,
@@ -17,7 +23,9 @@ from app.auth import (
     generate_qr_code, verify_totp
 )
 from app.config import get_settings
+from app.services.email_service import send_password_reset_email, send_welcome_email
 
+logger = logging.getLogger(__name__)
 settings = get_settings()
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
@@ -171,3 +179,145 @@ async def disable_2fa(
     db.commit()
 
     return {"message": "2FA disabled successfully"}
+
+
+# ==================== Password Reset ====================
+
+@router.post("/forgot-password")
+async def forgot_password(data: PasswordResetRequest, db: Session = Depends(get_db)):
+    """Request a password reset email."""
+    user = db.query(User).filter(User.email == data.email).first()
+
+    # Always return success to prevent email enumeration
+    if not user:
+        return {"message": "If an account exists with that email, a reset link has been sent."}
+
+    # Check if user signed up with Google (can't reset password)
+    if user.auth_provider == "google" and not user.hashed_password:
+        return {"message": "If an account exists with that email, a reset link has been sent."}
+
+    # Generate reset token
+    reset_token = secrets.token_urlsafe(32)
+    user.reset_token = reset_token
+    user.reset_token_expires = datetime.utcnow() + timedelta(hours=1)
+    db.commit()
+
+    # Send email
+    reset_url = f"{settings.frontend_url}/reset-password"
+    send_password_reset_email(user.email, reset_token, reset_url)
+
+    return {"message": "If an account exists with that email, a reset link has been sent."}
+
+
+@router.post("/reset-password")
+async def reset_password(data: PasswordResetConfirm, db: Session = Depends(get_db)):
+    """Reset password using token from email."""
+    user = db.query(User).filter(User.reset_token == data.token).first()
+
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid or expired reset token"
+        )
+
+    # Check if token expired
+    if user.reset_token_expires and user.reset_token_expires < datetime.utcnow():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Reset token has expired. Please request a new one."
+        )
+
+    # Update password
+    user.hashed_password = get_password_hash(data.new_password)
+    user.reset_token = None
+    user.reset_token_expires = None
+    db.commit()
+
+    return {"message": "Password has been reset successfully. You can now log in."}
+
+
+# ==================== Google OAuth ====================
+
+@router.post("/google", response_model=GoogleAuthResponse)
+async def google_auth(data: GoogleAuthRequest, db: Session = Depends(get_db)):
+    """Authenticate with Google Sign-In."""
+    try:
+        # Verify the Google ID token
+        idinfo = id_token.verify_oauth2_token(
+            data.credential,
+            google_requests.Request(),
+            settings.google_client_id
+        )
+
+        # Get user info from token
+        google_id = idinfo.get("sub")
+        email = idinfo.get("email")
+        name = idinfo.get("name")
+
+        if not email:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Email not provided by Google"
+            )
+
+        # Check if user exists by Google ID or email
+        user = db.query(User).filter(
+            (User.google_id == google_id) | (User.email == email)
+        ).first()
+
+        is_new_user = False
+
+        if not user:
+            # Create new user
+            user = User(
+                email=email,
+                full_name=name,
+                google_id=google_id,
+                auth_provider="google",
+                is_active=True
+            )
+            db.add(user)
+            db.commit()
+            db.refresh(user)
+            is_new_user = True
+
+            # Send welcome email
+            send_welcome_email(email, name)
+
+        elif not user.google_id:
+            # Link existing email account with Google
+            user.google_id = google_id
+            user.auth_provider = "google"
+            if name and not user.full_name:
+                user.full_name = name
+            db.commit()
+
+        # Create access token
+        access_token = create_access_token(
+            data={"sub": user.id},
+            expires_delta=timedelta(minutes=settings.jwt_expire_minutes)
+        )
+
+        return GoogleAuthResponse(
+            access_token=access_token,
+            token_type="bearer",
+            is_new_user=is_new_user
+        )
+
+    except ValueError as e:
+        logger.error(f"Google token verification failed: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid Google token"
+        )
+
+
+@router.get("/google/client-id")
+async def get_google_client_id():
+    """Get Google Client ID for frontend."""
+    if not settings.google_client_id:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Google Sign-In is not configured"
+        )
+    return {"client_id": settings.google_client_id}

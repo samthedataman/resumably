@@ -45,6 +45,19 @@ export const authApi = {
   verify2FA: (code: string) => api.post('/api/auth/2fa/verify', { code }),
 
   disable2FA: (code: string) => api.post('/api/auth/2fa/disable', { code }),
+
+  // Password Reset
+  forgotPassword: (email: string) =>
+    api.post('/api/auth/forgot-password', { email }),
+
+  resetPassword: (token: string, newPassword: string) =>
+    api.post('/api/auth/reset-password', { token, new_password: newPassword }),
+
+  // Google OAuth
+  googleAuth: (credential: string) =>
+    api.post('/api/auth/google', { credential }),
+
+  getGoogleClientId: () => api.get('/api/auth/google/client-id'),
 };
 
 // Gmail API
