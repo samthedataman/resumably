@@ -145,7 +145,7 @@ export default function Skills() {
                   {category.replace(/_/g, ' ')}
                 </h3>
                 <div className="flex flex-wrap gap-2">
-                  {categorySkills.map((skill: Skill) => (
+                  {(categorySkills as Skill[]).map((skill: Skill) => (
                     <div
                       key={skill.id}
                       className={`px-3 py-2 rounded-lg text-sm ${
