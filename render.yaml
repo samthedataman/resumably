@@ -1,0 +1,46 @@
+# Render Blueprint for Resumably
+services:
+  # Backend API
+  - type: web
+    name: resumably-api
+    env: python
+    buildCommand: cd backend && pip install -r requirements.txt
+    startCommand: cd backend && uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: resumably-db
+          property: connectionString
+      - key: SECRET_KEY
+        generateValue: true
+      - key: JWT_EXPIRE_MINUTES
+        value: 1440
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: GOOGLE_CREDENTIALS
+        sync: false
+      - key: FRONTEND_URL
+        value: https://resumably.onrender.com
+
+  # Frontend
+  - type: web
+    name: resumably
+    env: static
+    buildCommand: cd frontend && npm install && npm run build
+    staticPublishPath: frontend/dist
+    routes:
+      - type: rewrite
+        source: /api/*
+        destination: https://resumably-api.onrender.com/api/*
+      - type: rewrite
+        source: /*
+        destination: /index.html
+    headers:
+      - path: /*
+        name: Cache-Control
+        value: no-cache
+
+databases:
+  - name: resumably-db
+    plan: free
+    databaseName: resumably
